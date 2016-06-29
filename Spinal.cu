@@ -24,8 +24,8 @@ unsigned char *RecvChar;
 unsigned int *RecvState;
 unsigned long *RecvRan;
 unsigned int PktLen;
-unsigned int TransLen = 8;
-unsigned int CharLen = TransLen / 8;
+unsigned int TransLen;
+unsigned int CharLen;
 unsigned int CRCLen;
 unsigned int IntLen;
 unsigned int RNGBinLen;
@@ -398,6 +398,7 @@ void PrintSeqFloat(float *Seq, unsigned int seqlen)
 
 void ReadSeq(unsigned int seqlen)
 {
+	//This function is useless now. Because Seqs will be generated randomly in Bin2Hex.
 	FILE *fp;
 	unsigned int i;
 
@@ -862,9 +863,9 @@ void ClearTrans()
 		index[i] = i;
 		indextemp[i] = i;
 	}
-	for(i = 0; i < PktNum; i++)
+	for(i = 0; i < IntLen; i++)
 	{
-		for(j = 0; j < HalfLen; j++)
+		for(j = 0; j < BeamLen; j++)
 		{
 			record[i][j] = 0;
 		}
@@ -1034,24 +1035,28 @@ void Exit()
 
 int main()
 {
-	unsigned int i, k;
+	unsigned int i, k, l;
 	//unsigned short int crc;
-	//FILE *frc;
-	float SNR;
-	printf("SNR: ");
-	scanf("%f", &SNR);
-	OOK_init(SNR);
+	float SNR_start, SNR_stop, SNR_step, SNR;
+	printf("SNR_Start: ");
+	scanf("%f", &SNR_start);
+	printf("SNR_Stop: ");
+	scanf("%f", &SNR_stop);
+	printf("SNR_Step: ");
+	scanf("%f", &SNR_step);
+	unsigned int numpoint = (unsigned int)abs((SNR_stop - SNR_start) / SNR_step);
+	SNR = SNR_start;
 	
+	printf("TransLen: ");
+	scanf("%d", &TransLen);
 	printf("PktLen: ");
 	scanf("%d", &PktLen);
 	printf("C-Bits: ");
 	scanf("%d", &c_bits);
 	printf("BeamWidth: ");
 	scanf("%d", &BeamWidth);
-	
-	unsigned int maxpass;
-	printf("Max-Pass: ");
-	scanf("%d", &maxpass);
+
+	CharLen = TransLen / 8;
 	PktNum = TransLen / PktLen;
 	CRCLen = CharLen + 2;
 	IntLen = CRCLen * 8 / PktLen;
@@ -1062,6 +1067,9 @@ int main()
 	FinalCharLen = IntLen / (8 / PktLen);
 	BeamLen = (0x1 << (BeamWidth));
 	printf("IntLen: %d, HalfLen: %d, TotalLen: %d, BeamLen: %d.\n", IntLen, HalfLen, TotalLen, BeamLen);
+	unsigned int maxpass;
+	printf("Max-Pass: ");
+	scanf("%d", &maxpass);
 	unsigned int framenum;
 	printf("FrameNum: ");
 	scanf("%d", &framenum);
@@ -1085,143 +1093,178 @@ int main()
 	Init();
 	printf("--------------------------------\n");
 	printf("Decoding...\n");
-	
-	for(i = 0; i < framenum; i++)
+
+	for(l = 0; l <= numpoint; l++)
 	{
-		//printf("New Frame!\n");
-		decodestate = 1;
-		passnum = 1;
-		EncodePass = EncodePassSussess;
-		rndseqseed = i;
+		EncodePass = 1;
+		EncodePassSussess = 1;
 		ClearTrans();
-		
-		while(decodestate)
+		OOK_init(SNR);
+		RATE = 0;
+		totalpass = 0;
+	
+		for(i = 0; i < framenum; i++)
 		{
-			if(passnum > maxpass)
-			{
-				break;
-			}
+			//printf("New Frame!\n");
+			decodestate = 1;
+			passnum = 1;
+			EncodePass = EncodePassSussess;
+			rndseqseed = i;
 			ClearTrans();
-
-			ReadSeq(TransLen);
-			//PrintSeqChar(TransSeq, TransLen);
-			Bin2Hex(passnum);
-			//PrintSeqChar(TransChar, CharLen);
-			CRCSeq(TransChar, CharLen);
-			Char2Int();
-			//PrintSeqInt(TransInt, IntLen);
-			HashSeq();
-			//PrintSeqInt(TransState, IntLen);
-			RNG();
-			//PrintSeqLong(TransRan, IntLen);
-			Hex2Bin();
-			//PrintSeqFloat(TransRNGBin, RNGBinLen);
-			ChannelGaussian();
-			//PrintSeqFloat(TransRNGBin, RNGBinLen);
-			/*
-			for(i = 0; i < 32; i++)
+			
+			while(decodestate)
 			{
-				frc = fopen("TransRNG.txt", "a+");
-				fprintf(frc, "%f ", TransRNGBin[32 * 2 + i]);
-	    		fclose(frc);
-				frc = NULL;
-			}
-			*/
-
-			PrepareM();
-			//printf("M0:\n");
-			//PrintSeqInt(mi0, HalfLen);
-			//printf("M:\n");
-			//PrintSeqInt(mi, TotalLen);
-			cudaMemcpy(mi0Gpu, mi0, sizeof(unsigned int) * HalfLen, cudaMemcpyHostToDevice);
-			cudaMemcpy(si0Gpu, si0, sizeof(unsigned int) * HalfLen, cudaMemcpyHostToDevice);
-			HashFuncKernel<<<1, HalfLen>>>(si0Gpu, mi0Gpu, stateGpu);
-			cudaMemcpy(si0, si0Gpu, sizeof(unsigned int) * HalfLen, cudaMemcpyDeviceToHost);		
-			//PrintSeqInt(si0, HalfLen);
-			//InitGenrandKernel<<<1, HalfLen>>>(si0Gpu, mtGpu, mtiGpu);
-			//GenrandInt32Kernel<<<1, HalfLen>>>(RN0Gpu, mtGpu, mtiGpu, mag01Gpu);
-			cudaMemcpy(RN0Gpu, si0Gpu, sizeof(unsigned int) * HalfLen, cudaMemcpyDeviceToDevice);
-			HashFuncKernel<<<1, HalfLen>>>(RN0Gpu, EncodePass_Gpu, stateGpu);
-			V2CBitsRNKernel<<<1, HalfLen>>>(RN0Gpu);
-			//cudaMemcpy(RN0, RN0Gpu, sizeof(unsigned int) * HalfLen, cudaMemcpyDeviceToHost);		
-			//PrintSeqInt(RN0, HalfLen);
-			//CostComputeKernel<<<1, HalfLen>>>(RN0Gpu, TransRNGBinGpu, costGpu);
-			CostComputeKernel<<<1, HalfLen>>>(RN0Gpu, TransRNGBinGpu, costGpu);
-			cudaMemcpy(cost0, costGpu, sizeof(float) * HalfLen, cudaMemcpyDeviceToHost);
-			//PrintSeqFloat(cost0, HalfLen);
-			BubbleSort(HalfLen, 0);
-			//PrintSeqFloat(cost0, HalfLen);
-			//PrintSeqInt(si0, HalfLen);
-			//PrintSeqInt(si, TotalLen);
-
-			for(k = 1; k < IntLen; k++)
-			{
-				//PrintSeqFloat(cost, TotalLen);
-				/*
-				for(i = 0; i < TotalLen; i++)
+				if(passnum > maxpass)
 				{
-					cost[i] = 0;
+					break;
+				}
+				ClearTrans();
+
+				ReadSeq(TransLen);
+				//PrintSeqChar(TransSeq, TransLen);
+				Bin2Hex(passnum);
+				//PrintSeqChar(TransChar, CharLen);
+				CRCSeq(TransChar, CharLen);
+				Char2Int();
+				//PrintSeqInt(TransInt, IntLen);
+				HashSeq();
+				//PrintSeqInt(TransState, IntLen);
+				RNG();
+				//PrintSeqLong(TransRan, IntLen);
+				Hex2Bin();
+				//PrintSeqFloat(TransRNGBin, RNGBinLen);
+				ChannelGaussian();
+				//PrintSeqFloat(TransRNGBin, RNGBinLen);
+				/*
+				for(i = 0; i < 32; i++)
+				{
+					frc = fopen("TransRNG.txt", "a+");
+					fprintf(frc, "%f ", TransRNGBin[32 * 2 + i]);
+		    		fclose(frc);
+					frc = NULL;
 				}
 				*/
-				cudaMemcpy(siGpu, si, sizeof(unsigned int) * TotalLen, cudaMemcpyHostToDevice);
-				cudaMemcpy(costGpu, cost, sizeof(float) * TotalLen, cudaMemcpyHostToDevice);
-				//HashFuncKernel<<<1, TotalLen>>>(siGpu, miGpu, stateGpu);
-				HashFuncKernel<<<blocksize, threadsize>>>(siGpu, miGpu, stateGpu);
-				cudaMemcpy(si, siGpu, sizeof(unsigned int) * TotalLen, cudaMemcpyDeviceToHost);
-				//PrintSeqInt(si, TotalLen);
-				//InitGenrandKernel<<<1, TotalLen>>>(siGpu, mtGpu, mtiGpu);
-				//GenrandInt32Kernel<<<1, TotalLen>>>(RNGpu, mtGpu, mtiGpu, mag01Gpu);
-				//InitGenrandKernel<<<blocksize, threadsize>>>(siGpu, mtGpu, mtiGpu);
-				//GenrandInt32Kernel<<<blocksize, threadsize>>>(RNGpu, mtGpu, mtiGpu, mag01Gpu);
-				cudaMemcpy(RNGpu, siGpu, sizeof(unsigned int) * HalfLen, cudaMemcpyDeviceToDevice);
-				HashFuncKernel<<<blocksize, threadsize>>>(RNGpu, EncodePass_Gpu, stateGpu);
-				V2CBitsRNKernel<<<blocksize, threadsize>>>(RNGpu);
-				//cudaMemcpy(RN, RNGpu, sizeof(unsigned int) * TotalLen, cudaMemcpyDeviceToHost);		
-				//PrintSeqInt(RN, TotalLen);
-				//CostComputeKernel<<<1, TotalLen>>>(RNGpu, TransRNGBinGpu + k * TotalLen * c_bits, costGpu);
-				//CostComputeKernel<<<blocksize, threadsize>>>(RNGpu, TransRNGBinGpu + k * TotalLen * c_bits, costGpu);
-				CostComputeKernel<<<blocksize, threadsize>>>(RNGpu, TransRNGBinGpu + k * TotalLen * c_bits, costGpu);
-				cudaMemcpy(cost, costGpu, sizeof(float) * TotalLen, cudaMemcpyDeviceToHost);
-				//PrintSeqFloat(cost, TotalLen);
-				BubbleSort(TotalLen, k);
-				//PrintSeqInt(si, TotalLen);
-			}
-			/*
-			for(i = 0; i < IntLen; i++)
-			{
-				PrintSeqInt(record[i], HalfLen);
-			}
-			*/
-			decodestate = CheckCRCResult();
 
-			//printf("STATE: %d\n", decodestate);
-			//printf("PASS: %d\n", passnum);
-			if(decodestate)
-			{
-				passnum++;
-				EncodePassSussess = 1;
-				EncodePass++;
-				//printf("Try a new pass\n");
+				PrepareM();
+				//printf("M0:\n");
+				//PrintSeqInt(mi0, HalfLen);
+				//printf("M:\n");
+				//PrintSeqInt(mi, TotalLen);
+				cudaMemcpy(mi0Gpu, mi0, sizeof(unsigned int) * HalfLen, cudaMemcpyHostToDevice);
+				cudaMemcpy(si0Gpu, si0, sizeof(unsigned int) * HalfLen, cudaMemcpyHostToDevice);
+				HashFuncKernel<<<1, HalfLen>>>(si0Gpu, mi0Gpu, stateGpu);
+				cudaMemcpy(si0, si0Gpu, sizeof(unsigned int) * HalfLen, cudaMemcpyDeviceToHost);		
+				//PrintSeqInt(si0, HalfLen);
+				//InitGenrandKernel<<<1, HalfLen>>>(si0Gpu, mtGpu, mtiGpu);
+				//GenrandInt32Kernel<<<1, HalfLen>>>(RN0Gpu, mtGpu, mtiGpu, mag01Gpu);
+				cudaMemcpy(RN0Gpu, si0Gpu, sizeof(unsigned int) * HalfLen, cudaMemcpyDeviceToDevice);
+				HashFuncKernel<<<1, HalfLen>>>(RN0Gpu, EncodePass_Gpu, stateGpu);
+				V2CBitsRNKernel<<<1, HalfLen>>>(RN0Gpu);
+				//cudaMemcpy(RN0, RN0Gpu, sizeof(unsigned int) * HalfLen, cudaMemcpyDeviceToHost);		
+				//PrintSeqInt(RN0, HalfLen);
+				//CostComputeKernel<<<1, HalfLen>>>(RN0Gpu, TransRNGBinGpu, costGpu);
+				CostComputeKernel<<<1, HalfLen>>>(RN0Gpu, TransRNGBinGpu, costGpu);
+				cudaMemcpy(cost0, costGpu, sizeof(float) * HalfLen, cudaMemcpyDeviceToHost);
+				//PrintSeqFloat(cost0, HalfLen);
+				BubbleSort(HalfLen, 0);
+				//PrintSeqFloat(cost0, HalfLen);
+				//PrintSeqInt(si0, HalfLen);
+				//PrintSeqInt(si, TotalLen);
+
+				for(k = 1; k < IntLen; k++)
+				{
+					//PrintSeqFloat(cost, TotalLen);
+					/*
+					for(i = 0; i < TotalLen; i++)
+					{
+						cost[i] = 0;
+					}
+					*/
+					cudaMemcpy(siGpu, si, sizeof(unsigned int) * TotalLen, cudaMemcpyHostToDevice);
+					cudaMemcpy(costGpu, cost, sizeof(float) * TotalLen, cudaMemcpyHostToDevice);
+					//HashFuncKernel<<<1, TotalLen>>>(siGpu, miGpu, stateGpu);
+					HashFuncKernel<<<blocksize, threadsize>>>(siGpu, miGpu, stateGpu);
+					cudaMemcpy(si, siGpu, sizeof(unsigned int) * TotalLen, cudaMemcpyDeviceToHost);
+					//PrintSeqInt(si, TotalLen);
+					//InitGenrandKernel<<<1, TotalLen>>>(siGpu, mtGpu, mtiGpu);
+					//GenrandInt32Kernel<<<1, TotalLen>>>(RNGpu, mtGpu, mtiGpu, mag01Gpu);
+					//InitGenrandKernel<<<blocksize, threadsize>>>(siGpu, mtGpu, mtiGpu);
+					//GenrandInt32Kernel<<<blocksize, threadsize>>>(RNGpu, mtGpu, mtiGpu, mag01Gpu);
+					cudaMemcpy(RNGpu, siGpu, sizeof(unsigned int) * HalfLen, cudaMemcpyDeviceToDevice);
+					HashFuncKernel<<<blocksize, threadsize>>>(RNGpu, EncodePass_Gpu, stateGpu);
+					V2CBitsRNKernel<<<blocksize, threadsize>>>(RNGpu);
+					//cudaMemcpy(RN, RNGpu, sizeof(unsigned int) * TotalLen, cudaMemcpyDeviceToHost);		
+					//PrintSeqInt(RN, TotalLen);
+					//CostComputeKernel<<<1, TotalLen>>>(RNGpu, TransRNGBinGpu + k * TotalLen * c_bits, costGpu);
+					//CostComputeKernel<<<blocksize, threadsize>>>(RNGpu, TransRNGBinGpu + k * TotalLen * c_bits, costGpu);
+					CostComputeKernel<<<blocksize, threadsize>>>(RNGpu, TransRNGBinGpu + k * TotalLen * c_bits, costGpu);
+					cudaMemcpy(cost, costGpu, sizeof(float) * TotalLen, cudaMemcpyDeviceToHost);
+					//PrintSeqFloat(cost, TotalLen);
+					BubbleSort(TotalLen, k);
+					//PrintSeqInt(si, TotalLen);
+				}
+				/*
+				for(i = 0; i < IntLen; i++)
+				{
+					PrintSeqInt(record[i], HalfLen);
+				}
+				*/
+				decodestate = CheckCRCResult();
+
+				//printf("STATE: %d\n", decodestate);
+				//printf("PASS: %d\n", passnum);
+				if(decodestate)
+				{
+					passnum++;
+					
+					if(2 == passnum)EncodePass = 0;
+					
+					EncodePassSussess = 1;
+					EncodePass++;
+					if(passnum == maxpass)
+					{
+						totalpass = totalpass + (double)passnum;
+						RATE = abs(RATE + 0);
+						printf("#%d -- Rate_Accumulated: %f, Pass_Num: %d.\n", i + 1, RATE, passnum);
+					}
+					//printf("Try a new pass\n");
+				}
+				else
+				{
+					totalpass = totalpass + (double)passnum;
+					EncodePassSussess = EncodePass;
+					//RATE = abs(RATE + TransLen * PktLen * 1e12 / ((double)(TransLen * passnum)) / c_bits / 1e12);
+					RATE = abs(RATE + PktLen * 1e12 / ((double)(passnum)) / 1e12);
+					printf("#%d -- Rate_Accumulated: %f, Pass_Num: %d.\n", i + 1, RATE, passnum);
+				}
 			}
-			else
-			{
-				totalpass = totalpass + (double)passnum;
-				EncodePassSussess = EncodePass;
-				//RATE = abs(RATE + TransLen * PktLen * 1e12 / ((double)(TransLen * passnum)) / c_bits / 1e12);
-				RATE = abs(RATE + PktLen * 1e12 / ((double)(passnum)) / 1e12);
-				printf("#%d -- Rate_Accumulated: %f, Pass_Num: %d.\n", i + 1, RATE, passnum);
-			}
+			//printf("--------------------------------\n");
 		}
-		//printf("--------------------------------\n");
+
+		RATE = RATE / framenum;
+		totalpass = abs(totalpass * 1e12 / (double)framenum / 1e12);
+
+		printf("Complete.\n");
+		printf("RATE: %f\n", RATE);
+		printf("AVERAGE PASSES: %f\n", totalpass);
+		printf("--------------------------------\n");
+
+		FILE *frc;
+		frc = fopen("SNR.txt", "a+");
+		fprintf(frc, "%f\n", SNR);
+	    fclose(frc);
+		frc = NULL;
+		frc = fopen("RATE.txt", "a+");
+		fprintf(frc, "%.10lf%\n", RATE);
+	    fclose(frc);
+		frc = NULL;
+		frc = fopen("PASS.txt", "a+");
+		fprintf(frc, "%.10lf%\n", totalpass);
+	    fclose(frc);
+		frc = NULL;
+
+		SNR = SNR + SNR_step;
 	}
-
-	RATE = RATE / framenum;
-	totalpass = abs(totalpass * 1e12 / (double)framenum / 1e12);
-
-	printf("Complete.\n");
-	printf("--------------------------------\n");
-	printf("RATE: %f\n", RATE);
-	printf("AVERAGE PASSES: %f\n", totalpass);
 
 	Exit();
 	cudaDeviceReset();
