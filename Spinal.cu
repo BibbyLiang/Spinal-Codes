@@ -396,58 +396,64 @@ void PrintSeqFloat(float *Seq, unsigned int seqlen)
 }
 
 
-void ReadSeq(unsigned int seqlen)
+void ReadSeq(unsigned int seqlen, unsigned int passnum, unsigned int seqstate)
 {
-	//This function is useless now. Because Seqs will be generated randomly in Bin2Hex.
-	FILE *fp;
 	unsigned int i;
-
-	//printf("ReadSeq.\n");
-	
-	fp = fopen("X.txt", "r");
-	for(i = 0; i < seqlen; i++)
+	if(seqstate)
 	{
-		fscanf(fp, "%d ", &TransSeq[i]);
-	}
+		//This function is useless now. Because Seqs will be generated randomly in Bin2Hex.
+		FILE *fp;
 
-	fclose(fp);
-	fp = NULL;
+		//printf("ReadSeq.\n");
+		
+		fp = fopen("X.txt", "r");
+		for(i = 0; i < seqlen; i++)
+		{
+			fscanf(fp, "%d ", &TransSeq[i]);
+		}
+
+		fclose(fp);
+		fp = NULL;
+	}
+	else
+	{
+		float mean = 1;
+		float variance = 1;
+		float rnd;
+
+		if(1 == passnum)
+		{
+			init_genrand(rndseqseed);
+			for(i = 0; i < TransLen; i++)
+			{
+				rnd = mean + variance * (float)Gaussrand();
+				//printf("%f\n", rnd);
+				if(mean < rnd)
+				{
+					TransSeq[i] = 1;
+				}
+				else
+				{
+					TransSeq[i] = 0;
+				}
+				ThisTimeTransSeq[i] = TransSeq[i];
+			}
+		}
+		else
+		{
+			for(i = 0; i < TransLen; i++)
+			{
+				TransSeq[i] = ThisTimeTransSeq[i];
+			}
+		}
+	}
 
 	return;
 }
 
-void Bin2Hex(unsigned int passnum)
+void Bin2Hex()
 {
 	unsigned int i, j;
-	float mean = 1;
-	float variance = 1;
-	float rnd;
-
-	if(1 == passnum)
-	{
-		init_genrand(rndseqseed);
-		for(i = 0; i < TransLen; i++)
-		{
-			rnd = mean + variance * (float)Gaussrand();
-			//printf("%f\n", rnd);
-			if(mean < rnd)
-			{
-				TransSeq[i] = 1;
-			}
-			else
-			{
-				TransSeq[i] = 0;
-			}
-			ThisTimeTransSeq[i] = TransSeq[i];
-		}
-	}
-	else
-	{
-		for(i = 0; i < TransLen; i++)
-		{
-			TransSeq[i] = ThisTimeTransSeq[i];
-		}
-	}
 	
 	for(i = 0; i < CharLen; i++)
 	{
@@ -1073,6 +1079,9 @@ int main()
 	unsigned int framenum;
 	printf("FrameNum: ");
 	scanf("%d", &framenum);
+	unsigned int seqstate;
+	printf("Seq Generating Mode (0: Random, 1: Read form Files): ");
+	scanf("%d", &seqstate);
 	unsigned int passnum;
 	double totalpass = 0; 
 	double RATE = 0;
@@ -1120,9 +1129,9 @@ int main()
 				}
 				ClearTrans();
 
-				ReadSeq(TransLen);
+				ReadSeq(TransLen, passnum, seqstate);
 				//PrintSeqChar(TransSeq, TransLen);
-				Bin2Hex(passnum);
+				Bin2Hex();
 				//PrintSeqChar(TransChar, CharLen);
 				CRCSeq(TransChar, CharLen);
 				Char2Int();
